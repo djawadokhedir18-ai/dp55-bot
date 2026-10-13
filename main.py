@@ -64,7 +64,6 @@ async def product_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     selected_key = query.data
     product = PRODUCTS.get(selected_key)
     
-    # حفظ اسم المنتج ومفتاحه السري (لتسهيل البرمجة لاحقاً)
     context.user_data['selected_product'] = product['name']
     context.user_data['selected_product_key'] = selected_key 
     context.user_data['price'] = product['price']
@@ -79,7 +78,6 @@ async def product_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     return WAITING_RECEIPT
 
 async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """إرسال التنبيه للأدمن مع أزرار التحكم"""
     user = update.effective_user
     product_name = context.user_data.get('selected_product', 'منتج غير محدد')
     product_key = context.user_data.get('selected_product_key', 'unknown')
@@ -93,7 +91,6 @@ async def receive_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "إثبات الدفع مرفق 👆. يرجى الاختيار:"
     )
 
-    # وضعنا product_key في الزر ليعرف البوت أي منتج يتعامل معه
     admin_keyboard = [
         [
             InlineKeyboardButton("✅ قبول الطلب", callback_data=f"accept_{user.id}_{product_key}"),
@@ -121,24 +118,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # ----------------- نظام الدردشة المتبادلة (خدمة العملاء) -----------------
 
 async def handle_customer_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تستقبل أي رسالة (مثل إيميل الزبون) وتحولها إليك كأدمن"""
     user = update.effective_user
-    
     forward_text = f"📩 **رسالة من الزبون:** {user.full_name} (`{user.id}`)\n\n{update.message.text}"
-    
     reply_markup = InlineKeyboardMarkup([[
         InlineKeyboardButton("💬 رد على الزبون", callback_data=f"reply_{user.id}")
     ]])
-    
-    await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
-        text=forward_text,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=forward_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """التعامل مع ضغطات الأدمن (أنت) على الأزرار"""
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -154,18 +141,17 @@ async def admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("accept_"):
         parts = data.split("_")
         customer_id = parts[1]
-        product_key = parts[2] if len(parts) > 2 else "unknown"
         
-        # الذكاء هنا: إذا كان المنتج هو كانفا برو (canva_pro)
+        # هذا هو السطر الذي تم إصلاحه لجمع اسم المنتج بالكامل (canva_pro)
+        product_key = "_".join(parts[2:]) if len(parts) > 2 else "unknown"
+        
         if product_key == "canva_pro":
             try:
-                # يراسل الزبون تلقائياً
                 await context.bot.send_message(
                     chat_id=int(customer_id),
                     text="🎉 **تم تأكيد الدفع بنجاح!**\n\nيرجى كتابة **الإيميل الخاص بك** هنا لكي أقوم بإرسال دعوة Canva Pro إليك فوراً.",
                     parse_mode="Markdown"
                 )
-                # يخبرك أنت أن المهمة التلقائية تمت
                 await query.edit_message_caption(
                     caption=f"{query.message.caption}\n\n✅ **تم قبول الطلب.**\n🤖 (إجراء تلقائي): تم إرسال رسالة للزبون نطلب فيها إيميله.",
                     parse_mode="Markdown"
@@ -173,7 +159,6 @@ async def admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 await query.edit_message_caption(caption=f"{query.message.caption}\n\n❌ **خطأ:** يبدو أن الزبون حظر البوت.")
         
-        # إذا كان المنتج جيميناي أو شيء آخر، يطلب منك إرسال البيانات يدوياً
         else:
             context.user_data['replying_to'] = customer_id
             await query.edit_message_caption(
@@ -187,13 +172,10 @@ async def admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=f"{query.message.text}\n\n👇 **اكتب رسالتك الآن للرد على الزبون:**", parse_mode="Markdown")
 
 async def admin_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تأخذ النص الذي كتبته أنت و ترسله للزبون"""
     if 'replying_to' not in context.user_data:
         return
-
     customer_id = context.user_data['replying_to']
     admin_text = update.message.text
-
     try:
         await context.bot.send_message(
             chat_id=int(customer_id),
@@ -208,13 +190,10 @@ async def admin_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ----------------- نقطة التشغيل الرئيسية -----------------
 def main():
     keep_alive()
-
     if not BOT_TOKEN:
         return
-
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # محادثة الشراء
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -228,14 +207,8 @@ def main():
     )
 
     application.add_handler(conv_handler)
-    
-    # التعامل مع أزرار الأدمن
     application.add_handler(CallbackQueryHandler(admin_decision, pattern="^(accept_|reject_|reply_)"))
-    
-    # التعامل مع ردود الأدمن
     application.add_handler(MessageHandler(filters.TEXT & filters.Chat(ADMIN_CHAT_ID) & ~filters.COMMAND, admin_send_message))
-    
-    # التعامل مع رسائل الزبون الحرة (مثل إرسال الإيميل)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.Chat(ADMIN_CHAT_ID) & ~filters.COMMAND, handle_customer_message))
 
     print("🤖 البوت قيد التشغيل الآن ومستعد لاستقبال الطلبات...")
